@@ -3,14 +3,13 @@ import pandas as pd
 import os
 import unicodedata
 
-# Configuração da página Web
+# Configuração da página web
 st.set_page_config(page_title="GMA Locações 2026", layout="wide")
 
 def normalizar_coluna(col):
-    """Remove acentos, espaços extras e padroniza para maiúsculo"""
+    """Remove acentos e espaços para garantir que o código encontre a coluna"""
     nfkd = unicodedata.normalize('NFKD', str(col))
-    col_limpa = "".join([c for c in nfkd if not unicodedata.combining(c)])
-    return col_limpa.strip().upper().replace("/", "_")
+    return "".join([c for c in nfkd if not unicodedata.combining(c)]).strip().upper().replace("/", "_")
 
 def carregar_dados():
     arquivo = "dados_locacao.xlsx"
@@ -18,62 +17,65 @@ def carregar_dados():
         return None
     try:
         df = pd.read_excel(arquivo)
-        # Limpeza profunda de colunas para evitar KeyError
+        # Padroniza os nomes das colunas para evitar o erro de KeyError
         df.columns = [normalizar_coluna(c) for c in df.columns]
         return df
     except Exception as e:
-        st.error(f"Erro ao ler o Excel: {e}")
+        st.error(f"Erro ao ler o arquivo Excel: {e}")
         return None
 
 st.title("📊 Painel de Consulta de Locação GMA")
+st.markdown("---")
+
 df = carregar_dados()
 
 if df is not None:
-    # FILTROS LATERAIS OU TOPO
+    # --- ÁREA DE FILTROS ---
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        cat_opcoes = sorted(df['CATEGORIA'].unique().astype(str))
-        categoria_sel = st.selectbox("Selecione o Equipamento", cat_opcoes)
+        categorias = sorted(df['CATEGORIA'].unique().astype(str))
+        cat_sel = st.selectbox("Selecione o Equipamento", categorias)
     
     with col2:
-        per_opcoes = sorted(df['PERIODO'].unique().astype(str))
-        periodo_sel = st.selectbox("Selecione o Período", per_opcoes)
+        periodos = sorted(df['PERIODO'].unique().astype(str))
+        per_sel = st.selectbox("Selecione o Período", periodos)
         
     with col3:
         busca = st.text_input("Filtrar por Modelo ou Potência").strip().upper()
 
-    # Mapeamento dinâmico das suas colunas de preço
-    col_8h = "8_HORAS_DIA" 
-    col_24h = "24_HORAS_DIA"
-
-    # Aplicação dos Filtros
-    dados = df[(df['CATEGORIA'] == categoria_sel) & (df['PERIODO'] == periodo_sel)]
+    # --- LÓGICA DE FILTRAGEM ---
+    # Filtra por Categoria e Período
+    dados = df[(df['CATEGORIA'] == cat_sel) & (df['PERIODO'] == per_sel)]
     
     if busca:
-        # Busca na coluna POTENCIA_VAZAO normalizada
+        # Busca nas colunas normalizadas: POTENCIA_VAZAO e MODELOS
         dados = dados[
             (dados['POTENCIA_VAZAO'].astype(str).str.upper().str.contains(busca, na=False)) | 
             (dados['MODELOS'].astype(str).str.upper().str.contains(busca, na=False))
         ]
 
-    st.markdown("---")
-
+    # --- EXIBIÇÃO DOS RESULTADOS ---
     if not dados.empty:
         for _, row in dados.iterrows():
             with st.container():
                 c1, c2, c3 = st.columns([2, 1, 1])
-                c1.subheader(f"{row['MODELOS']}")
-                c1.write(f"**Vazão/Potência:** {row['POTENCIA_VAZAO']}")
                 
-                # Exibição dos valores formatados
-                val8h = row[col_8h] if col_8h in row else 0
-                val24h = row[col_24h] if col_24h in row else 0
+                with c1:
+                    st.subheader(f"{row['MODELOS']}")
+                    st.write(f"**Vazão/Potência:** {row['POTENCIA_VAZAO']}")
                 
-                c2.metric("Locação 8h", f"R$ {val8h:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                c3.metric("Locação 24h", f"R$ {val24h:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                with c2:
+                    # Mapeia '8 HORAS/DIA' que vira '8 HORAS_DIA' após normalização
+                    val8h = row.get('8 HORAS_DIA', 0)
+                    st.metric("Locação 8h", f"R$ {val8h:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                
+                with c3:
+                    # Mapeia '24 HORAS/DIA' que vira '24 HORAS_DIA' após normalização
+                    val24h = row.get('24 HORAS_DIA', 0)
+                    st.metric("Locação 24h", f"R$ {val24h:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
                 st.divider()
     else:
-        st.info("Nenhum item encontrado com esses filtros.")
+        st.info("Nenhum item encontrado com estes filtros.")
 else:
-    st.error("Arquivo 'dados_locacao.xlsx' não encontrado.")
+    st.error("Arquivo 'dados_locacao.xlsx' não encontrado no servidor.")
